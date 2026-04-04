@@ -1,0 +1,28 @@
+# Node / package managers
+node_modules/
+
+# Nuxt / Nitro build outputs
+frontend/.nuxt/
+frontend/.output/
+frontend/.nitro/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local env files
+.env
+.env.*
+!.env.example
+frontend/.env
+frontend/.env.*
+api/.dev.vars
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

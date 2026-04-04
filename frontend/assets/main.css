@@ -1,0 +1,198 @@
+:root {
+  --bg: #f4f7f8;
+  --surface: #ffffff;
+  --text: #1b1f24;
+  --muted: #5b6470;
+  --accent: #0f6a64;
+  --border: #d9e1e6;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+  color: var(--text);
+  background: radial-gradient(circle at top right, #d9f0ec, var(--bg));
+}
+
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.06);
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+button {
+  border: none;
+  border-radius: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  background: var(--accent);
+  color: white;
+  font-weight: 600;
+}
+
+button.secondary {
+  background: #2f3b46;
+}
+
+input {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 10px;
+  min-width: 220px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+}
+
+th,
+td {
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  padding: 8px;
+}
+
+h1, h2 {
+  margin-top: 0;
+}
+
+.muted {
+  color: var(--muted);
+
+/* ─── Navbar ─────────────────────────────────────────── */
+.navbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 24px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.brand {
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.nav-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.nav-info {
+  font-size: 0.85rem;
+}
+
+/* ─── Split layout ──────────────────────────────────── */
+.split-layout {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  margin-top: 16px;
+}
+
+.panel {
+  flex: 1;
+  min-width: 0;
+}
+
+.panel--narrow {
+  flex: 0 0 380px;
+}
+
+/* ─── Table ─────────────────────────────────────────── */
+.table-scroll {
+  overflow-x: auto;
+  max-height: calc(100vh - 240px);
+  overflow-y: auto;
+}
+
+tr.row-selected td {
+  background: #dff1ef;
+}
+
+/* ─── Action buttons ────────────────────────────────── */
+.actions {
+  white-space: nowrap;
+  width: 1%;
+}
+
+.action-btn {
+  background: none;
+  color: var(--accent);
+  padding: 2px 6px;
+  font-weight: bold;
+}
+
+.action-btn.danger {
+  color: #c0392b;
+}
+
+/* ─── Modal ─────────────────────────────────────────── */
+.modal {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  width: 380px;
+  max-width: 95vw;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+}
+
+.modal::backdrop {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.modal label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.modal input {
+  width: 100%;
+}
+
+/* ─── Error ─────────────────────────────────────────── */
+.error {
+  color: #c0392b;
+  font-size: 0.85rem;
+  margin: 4px 0;
+}
+}
