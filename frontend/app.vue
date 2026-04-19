@@ -19,10 +19,13 @@ watch(account, async (a) => {
 
 <template>
   <nav class="navbar">
-    <NuxtLink to="/" class="brand">Chargenrückverfolgung</NuxtLink>
+    <NuxtLink to="/" class="brand">
+      <img src="/nexovis-logo.svg" alt="Nexovis" class="brand-logo" />
+      <span class="brand-text">Chargenrückverfolgung</span>
+    </NuxtLink>
     <div class="nav-actions">
       <NuxtLink v-if="canAdmin" to="/admin" class="nav-link">Benutzer</NuxtLink>
-      <span v-if="account" class="muted nav-info">{{ account.username }} · {{ role }}</span>
+      <span v-if="account" class="nav-info">{{ account.username }} · {{ role }}</span>
       <button v-if="!account" @click="signIn" style="padding: 6px 12px;">Anmelden</button>
       <button v-else class="secondary" @click="signOut" style="padding: 6px 12px;">Abmelden</button>
     </div>

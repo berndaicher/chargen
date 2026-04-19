@@ -21,6 +21,22 @@ frontend/.env
 frontend/.env.*
 api/.dev.vars
 
+# Cloudflare API token (local only, never commit)
+.cloudflare-token
+
+# Wrangler / build caches
+api/.wrangler/
+frontend/dist/
+
+# Generated data import (produced from data/*.csv)
+api/scripts/import-data.sql
+
+# Business data (exported from source DB, not source code)
+data/
+
+# Claude Code local settings
+.claude/
+
 # OS/editor
 .DS_Store
 Thumbs.db

@@ -2,11 +2,14 @@ name = "chargen-api"
 main = "src/index.ts"
 compatibility_date = "2026-04-04"
 
+routes = [
+  { pattern = "api.bodnerchargen.nexovis.com", custom_domain = true }
+]
+
 [[d1_databases]]
 binding = "DB"
 database_name = "chargen"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "3da2b12b-1fc3-44f0-8d3e-c59047f3b234"
 
 [vars]
 ENTRA_TENANT_MODE = "multi"
-ENTRA_AUDIENCE = "api://REPLACE_WITH_APP_ID_URI"

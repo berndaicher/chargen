@@ -3,6 +3,7 @@ import { HTTPException } from 'hono/http-exception';
 import { verifyEntraToken } from './auth';
 import { resolveRole, resolveTenant, upsertUser } from './db';
 import type { AuthContext, Bindings } from './types';
+import type { VerifiedIdentity } from './auth';
 
 type AppContext = {
   Bindings: Bindings;
@@ -14,13 +15,32 @@ type AppContext = {
 const app = new Hono<AppContext>();
 
 app.use('*', async (c, next) => {
+  c.header('Access-Control-Allow-Origin', '*');
+  c.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  c.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+  if (c.req.method === 'OPTIONS') {
+    return c.body(null, 204);
+  }
+
   if (c.req.path === '/health') {
     await next();
     return;
   }
 
   try {
-    const identity = await verifyEntraToken(c);
+    let identity: VerifiedIdentity;
+    if (c.env.DEV_AUTH_BYPASS) {
+      identity = {
+        tenantExternalId: c.env.DEV_TENANT_ID ?? 'dev-tenant',
+        userOid: 'dev-user-00000000-0000-0000-0000-000000000000',
+        email: 'dev@bodner-getraenke.at',
+        displayName: 'Dev User'
+      };
+    } else {
+      identity = await verifyEntraToken(c);
+    }
+
     const tenant = await resolveTenant(c.env, identity);
     const user = await upsertUser(c.env, identity);
     const role = await resolveRole(c.env, tenant.id, user.id);
@@ -57,15 +77,18 @@ app.get('/me', (c) => {
 app.get('/articles', async (c) => {
   const auth = requireRole(c, ['reader', 'editor', 'admin']);
   const q = (c.req.query('q') ?? '').trim();
+  const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '100', 10) || 100, 1), 500);
+  const offset = Math.max(parseInt(c.req.query('offset') ?? '0', 10) || 0, 0);
 
   const rows = await c.env.DB.prepare(
     `SELECT n_article, article_name
      FROM t_articles
      WHERE tenant_id = ?
        AND (? = '' OR CAST(n_article AS TEXT) LIKE '%' || ? || '%' OR article_name LIKE '%' || ? || '%')
-     ORDER BY n_article ASC`
+     ORDER BY n_article ASC
+     LIMIT ? OFFSET ?`
   )
-    .bind(auth.tenantId, q, q, q)
+    .bind(auth.tenantId, q, q, q, limit, offset)
     .all<{ n_article: number; article_name: string }>();
 
   return c.json(rows.results ?? []);
@@ -134,6 +157,9 @@ app.delete('/articles/:nArticle', async (c) => {
 app.get('/charges', async (c) => {
   const auth = requireRole(c, ['reader', 'editor', 'admin']);
   const q = (c.req.query('q') ?? '').trim();
+  const nArticle = (c.req.query('n_article') ?? '').trim();
+  const limit = Math.min(Math.max(parseInt(c.req.query('limit') ?? '100', 10) || 100, 1), 500);
+  const offset = Math.max(parseInt(c.req.query('offset') ?? '0', 10) || 0, 0);
 
   const rows = await c.env.DB.prepare(
     `SELECT c.n_charge, c.n_article, c.charge_id, c.good_to, c.first_delivery, c.last_delivery, a.article_name
@@ -142,9 +168,11 @@ app.get('/charges', async (c) => {
        ON a.tenant_id = c.tenant_id AND a.n_article = c.n_article
      WHERE c.tenant_id = ?
        AND (? = '' OR c.charge_id LIKE '%' || ? || '%' OR CAST(c.n_article AS TEXT) LIKE '%' || ? || '%' OR a.article_name LIKE '%' || ? || '%')
-     ORDER BY c.id DESC`
+       AND (? = '' OR CAST(c.n_article AS TEXT) = ?)
+     ORDER BY c.id DESC
+     LIMIT ? OFFSET ?`
   )
-    .bind(auth.tenantId, q, q, q, q)
+    .bind(auth.tenantId, q, q, q, q, nArticle, nArticle, limit, offset)
     .all();
 
   return c.json(rows.results ?? []);
