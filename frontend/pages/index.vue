@@ -33,21 +33,22 @@ const articleHasMore = ref(true);
 const articleLoadingMore = ref(false);
 const PAGE_SIZE = 100;
 
-const articleSortKey = ref<'n_article' | 'article_name'>('n_article');
+type ArticleSortKey = 'product_identifier' | 'article_name';
+const articleSortKey = ref<ArticleSortKey>('product_identifier');
 const articleSortAsc = ref(true);
 
 const sortedArticles = computed(() => {
   const key = articleSortKey.value;
   const dir = articleSortAsc.value ? 1 : -1;
   return [...articles.value].sort((a, b) => {
-    const av = a[key];
-    const bv = b[key];
+    const av = a[key] ?? '';
+    const bv = b[key] ?? '';
     if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
-    return String(av).localeCompare(String(bv)) * dir;
+    return String(av).localeCompare(String(bv), 'de', { numeric: true }) * dir;
   });
 });
 
-function toggleArticleSort(key: 'n_article' | 'article_name') {
+function toggleArticleSort(key: ArticleSortKey) {
   if (articleSortKey.value === key) {
     articleSortAsc.value = !articleSortAsc.value;
   } else {
@@ -58,7 +59,7 @@ function toggleArticleSort(key: 'n_article' | 'article_name') {
   nextTick(() => { articleSortLock = false; });
 }
 
-function sortIcon(key: 'n_article' | 'article_name') {
+function sortIcon(key: ArticleSortKey) {
   if (articleSortKey.value !== key) return '⇅';
   return articleSortAsc.value ? '↑' : '↓';
 }
@@ -106,12 +107,13 @@ function selectArticle(a: Article) {
 
 // ─── Article Modal ────────────────────────────────────────────────────────────
 const articleDialog = ref<HTMLDialogElement | null>(null);
-const articleForm = reactive({ n_article: '' as string | number, article_name: '', isEdit: false });
+const articleForm = reactive({ n_article: 0, product_identifier: '', article_name: '', isEdit: false });
 const articleSaving = ref(false);
 const articleFormError = ref('');
 
 function openNewArticle() {
-  articleForm.n_article = '';
+  articleForm.n_article = 0;
+  articleForm.product_identifier = '';
   articleForm.article_name = '';
   articleForm.isEdit = false;
   articleFormError.value = '';
@@ -120,6 +122,7 @@ function openNewArticle() {
 
 function openEditArticle(a: Article) {
   articleForm.n_article = a.n_article;
+  articleForm.product_identifier = a.product_identifier ?? '';
   articleForm.article_name = a.article_name;
   articleForm.isEdit = true;
   articleFormError.value = '';
@@ -127,29 +130,30 @@ function openEditArticle(a: Article) {
 }
 
 async function saveArticle() {
-  const nArticle = Number(articleForm.n_article);
-  if (!Number.isInteger(nArticle) || nArticle <= 0) {
-    articleFormError.value = 'Artikelnummer muss eine positive Ganzzahl sein.';
+  const pid = articleForm.product_identifier.trim();
+  const name = articleForm.article_name.trim();
+  if (!pid) {
+    articleFormError.value = 'Art. Nr. darf nicht leer sein.';
     return;
   }
-  if (!articleForm.article_name.trim()) {
+  if (!name) {
     articleFormError.value = 'Bezeichnung darf nicht leer sein.';
     return;
   }
   const duplicate = articles.value.find(
-    (a) => a.n_article === nArticle && !articleForm.isEdit
+    (a) => a.product_identifier === pid && (!articleForm.isEdit || a.n_article !== articleForm.n_article)
   );
   if (duplicate) {
-    articleFormError.value = `Artikelnummer ${nArticle} existiert bereits.`;
+    articleFormError.value = `Art. Nr. "${pid}" existiert bereits.`;
     return;
   }
   articleSaving.value = true;
   articleFormError.value = '';
   try {
     if (articleForm.isEdit) {
-      await api.updateArticle(nArticle, articleForm.article_name.trim());
+      await api.updateArticle(articleForm.n_article, { product_identifier: pid, article_name: name });
     } else {
-      await api.createArticle({ n_article: nArticle, article_name: articleForm.article_name.trim() });
+      await api.createArticle({ product_identifier: pid, article_name: name });
     }
     articleDialog.value?.close();
     await loadArticles();
@@ -158,8 +162,8 @@ async function saveArticle() {
     }
   } catch (e) {
     const msg = String((e as Error).message);
-    if (msg.includes('UNIQUE') || msg.includes('unique') || msg.toLowerCase().includes('duplicate')) {
-      articleFormError.value = `Artikelnummer ${nArticle} existiert bereits.`;
+    if (msg.includes('UNIQUE') || msg.includes('unique') || msg.toLowerCase().includes('duplicate') || msg.includes('409')) {
+      articleFormError.value = `Art. Nr. "${pid}" existiert bereits.`;
     } else {
       articleFormError.value = msg;
     }
@@ -169,7 +173,7 @@ async function saveArticle() {
 }
 
 async function deleteArticle(a: Article) {
-  if (!confirm(`Artikel ${a.n_article} (${a.article_name}) wirklich löschen?\nAlle zugehörigen Chargen werden ebenfalls gelöscht.`)) return;
+  if (!confirm(`Artikel ${a.product_identifier ?? a.n_article} (${a.article_name}) wirklich löschen?\nAlle zugehörigen Chargen werden ebenfalls gelöscht.`)) return;
   try {
     await api.deleteArticle(a.n_article);
     if (selectedArticle.value?.n_article === a.n_article) selectedArticle.value = null;
@@ -188,8 +192,9 @@ const chargeError = ref('');
 const chargeHasMore = ref(true);
 const chargeLoadingMore = ref(false);
 
-const chargeSortKey = ref<'charge_id' | 'n_article' | 'good_to' | 'first_delivery' | 'last_delivery'>('charge_id');
-const chargeSortAsc = ref(true);
+type ChargeSortKey = 'charge_id' | 'product_identifier' | 'article_name' | 'good_to' | 'first_delivery' | 'last_delivery';
+const chargeSortKey = ref<ChargeSortKey>('first_delivery');
+const chargeSortAsc = ref(false);
 
 const displayedCharges = computed(() => {
   const result = [...charges.value];
@@ -199,7 +204,7 @@ const displayedCharges = computed(() => {
     const av = a[key] ?? '';
     const bv = b[key] ?? '';
     if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
-    return String(av).localeCompare(String(bv)) * dir;
+    return String(av).localeCompare(String(bv), 'de', { numeric: true }) * dir;
   });
 });
 
@@ -308,20 +313,24 @@ function onArticleSearchInput() {
   }, 250);
 }
 
+function articleDisplay(a: Article): string {
+  return `${a.product_identifier ?? ''} — ${a.article_name}`;
+}
+
 function openArticleDropdown() {
   articleDropdownOpen.value = true;
   articleSearch.value = '';
   if (chargeForm.n_article) {
     const a = articleOptions.value.find((x) => x.n_article === chargeForm.n_article)
       ?? articles.value.find((x) => x.n_article === chargeForm.n_article);
-    if (a) articleSearch.value = `${a.n_article} — ${a.article_name}`;
+    if (a) articleSearch.value = articleDisplay(a);
   }
   fetchArticleOptions('');
 }
 
 function selectArticleOption(a: Article) {
   chargeForm.n_article = a.n_article;
-  articleSearch.value = `${a.n_article} — ${a.article_name}`;
+  articleSearch.value = articleDisplay(a);
   articleDropdownOpen.value = false;
 }
 
@@ -335,7 +344,7 @@ function onArticleBlur() {
     if (chargeForm.n_article) {
       const a = articleOptions.value.find((x) => x.n_article === chargeForm.n_article)
         ?? articles.value.find((x) => x.n_article === chargeForm.n_article);
-      if (a) articleSearch.value = `${a.n_article} — ${a.article_name}`;
+      if (a) articleSearch.value = articleDisplay(a);
     }
   }, 150);
 }
@@ -346,8 +355,9 @@ function openNewCharge(article?: Article) {
     selectedArticle.value = target;
     chargeForm.n_article = target.n_article;
     const a = articleOptions.value.find((x) => x.n_article === target.n_article)
-      ?? articles.value.find((x) => x.n_article === target.n_article);
-    articleSearch.value = a ? `${a.n_article} — ${a.article_name}` : '';
+      ?? articles.value.find((x) => x.n_article === target.n_article)
+      ?? target;
+    articleSearch.value = articleDisplay(a);
   } else {
     chargeForm.n_article = '';
     articleSearch.value = '';
@@ -365,7 +375,7 @@ function openNewCharge(article?: Article) {
 function openEditCharge(c: Charge) {
   chargeForm.n_article = c.n_article;
   const a = articles.value.find((x) => x.n_article === c.n_article);
-  articleSearch.value = a ? `${a.n_article} — ${a.article_name}` : String(c.n_article);
+  articleSearch.value = a ? articleDisplay(a) : (c.product_identifier ?? String(c.n_article));
   chargeForm.charge_id = c.charge_id;
   chargeForm.good_to = isoToDE(c.good_to);
   chargeForm.first_delivery = isoToDE(c.first_delivery);
@@ -458,7 +468,7 @@ function formatDate(val: string | null): string {
 
 function exportArticlesCSV() {
   const rows = sortedArticles.value.map(a => ({
-    Artikelnummer: a.n_article,
+    Artikelnummer: a.product_identifier ?? '',
     Bezeichnung: a.article_name
   }));
   downloadCSV(rows, 'artikel.csv');
@@ -466,7 +476,7 @@ function exportArticlesCSV() {
 
 function exportChargesCSV() {
   const rows = displayedCharges.value.map(c => ({
-    Artikelnummer: c.n_article,
+    Artikelnummer: c.product_identifier ?? '',
     Bezeichnung: c.article_name,
     Chargennummer: c.charge_id,
     MHD: formatDate(c.good_to),
@@ -495,9 +505,10 @@ async function printArticleList() {
   const w = window.open('', '_blank');
   if (!w) { alert('Bitte Popup-Blocker für diese Seite deaktivieren.'); return; }
 
+  const escHtml = (s: string) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   let rows = '';
   for (const a of allArticles) {
-    rows += `<tr><td>${a.n_article}</td><td>${a.article_name.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</td></tr>\n`;
+    rows += `<tr><td>${escHtml(a.product_identifier ?? '')}</td><td>${escHtml(a.article_name)}</td></tr>\n`;
   }
 
   w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Artikelliste</title>
@@ -549,11 +560,11 @@ async function printChargeList() {
 
   let rows = '';
   for (const c of allCharges) {
-    rows += `<tr><td>${c.n_article}</td><td>${e(c.article_name)}</td><td>${e(c.charge_id)}</td><td>${fmtDate(c.good_to)}</td><td>${fmtDate(c.first_delivery)}</td><td>${fmtDate(c.last_delivery)}</td></tr>\n`;
+    rows += `<tr><td>${e(c.product_identifier ?? '')}</td><td>${e(c.article_name)}</td><td>${e(c.charge_id)}</td><td>${fmtDate(c.good_to)}</td><td>${fmtDate(c.first_delivery)}</td><td>${fmtDate(c.last_delivery)}</td></tr>\n`;
   }
 
   const subtitle = selectedArticle.value
-    ? ` — Artikel ${selectedArticle.value.n_article} (${e(selectedArticle.value.article_name)})`
+    ? ` — Artikel ${e(selectedArticle.value.product_identifier ?? '')} (${e(selectedArticle.value.article_name)})`
     : '';
 
   w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Chargenliste</title>
@@ -696,8 +707,8 @@ watch(accessToken, init);
             </colgroup>
             <thead>
               <tr>
-                <th class="sortable col-art-nr" @click="toggleArticleSort('n_article')">
-                  Art. Nr <span class="sort-icon">{{ sortIcon('n_article') }}</span>
+                <th class="sortable col-art-nr" @click="toggleArticleSort('product_identifier')">
+                  Art. Nr <span class="sort-icon">{{ sortIcon('product_identifier') }}</span>
                   <div class="col-resize" @mousedown="startResize('article', 'col-art-nr', $event)"></div>
                 </th>
                 <th class="sortable col-art-name" @click="toggleArticleSort('article_name')">
@@ -716,7 +727,7 @@ watch(accessToken, init);
                 @click="selectArticle(a)"
                 class="clickable-row"
               >
-                <td>{{ a.n_article }}</td>
+                <td>{{ a.product_identifier }}</td>
                 <td>{{ a.article_name }}</td>
                 <td v-if="canWrite" class="actions" @click.stop>
                   <button @click="openNewCharge(a)" class="action-btn" title="Charge zu diesem Artikel erfassen">＋</button>
@@ -740,7 +751,7 @@ watch(accessToken, init);
         <h2>
           Chargen
           <span v-if="selectedArticle" class="filter-badge">
-            · {{ selectedArticle.n_article }} — {{ selectedArticle.article_name }}
+            · {{ selectedArticle.product_identifier }} — {{ selectedArticle.article_name }}
             <button class="clear-filter" @click="selectedArticle = null; loadCharges();" title="Filter aufheben">✕</button>
           </span>
         </h2>
@@ -769,12 +780,12 @@ watch(accessToken, init);
           </colgroup>
           <thead>
             <tr>
-              <th class="sortable col-chg-nr" @click="toggleChargeSort('n_article')">
-                Art. Nr <span class="sort-icon">{{ chargeSortIcon('n_article') }}</span>
+              <th class="sortable col-chg-nr" @click="toggleChargeSort('product_identifier')">
+                Art. Nr <span class="sort-icon">{{ chargeSortIcon('product_identifier') }}</span>
                 <div class="col-resize" @mousedown="startResize('charge', 'col-chg-nr', $event)"></div>
               </th>
-              <th class="sortable col-chg-name" @click="toggleChargeSort('charge_id')">
-                Bezeichnung <span class="sort-icon">{{ chargeSortIcon('charge_id') }}</span>
+              <th class="sortable col-chg-name" @click="toggleChargeSort('article_name')">
+                Bezeichnung <span class="sort-icon">{{ chargeSortIcon('article_name') }}</span>
                 <div class="col-resize" @mousedown="startResize('charge', 'col-chg-name', $event)"></div>
               </th>
               <th class="sortable col-chg-id" @click="toggleChargeSort('charge_id')">
@@ -800,7 +811,7 @@ watch(accessToken, init);
             <tr v-if="chargeLoading"><td colspan="7" class="muted" style="padding: 12px;">Laden…</td></tr>
             <tr v-else-if="displayedCharges.length === 0"><td colspan="7" class="muted" style="padding: 12px;">Keine Chargen gefunden.</td></tr>
             <tr v-for="c in displayedCharges" :key="c.charge_id">
-              <td>{{ c.n_article }}</td>
+              <td>{{ c.product_identifier }}</td>
               <td>{{ c.article_name }}</td>
               <td>{{ c.charge_id }}</td>
               <td>{{ formatDate(c.good_to) }}</td>
@@ -822,8 +833,8 @@ watch(accessToken, init);
       <form method="dialog" @submit.prevent>
         <h3>{{ articleForm.isEdit ? 'Artikel bearbeiten' : 'Artikel anlegen' }}</h3>
         <label>
-          Artikelnummer
-          <input v-model="articleForm.n_article" type="number" :disabled="articleForm.isEdit" placeholder="z. B. 1234" required />
+          Art. Nr.
+          <input v-model="articleForm.product_identifier" type="text" placeholder="z. B. 1234" required />
         </label>
         <label>
           Bezeichnung
@@ -862,7 +873,7 @@ watch(accessToken, init);
                 class="autocomplete-item"
                 @mousedown.prevent="selectArticleOption(a)"
               >
-                <span class="autocomplete-num">{{ a.n_article }}</span>
+                <span class="autocomplete-num">{{ a.product_identifier }}</span>
                 <span class="autocomplete-name">{{ a.article_name }}</span>
               </div>
               <div v-if="filteredArticleOptions.length === 0" class="autocomplete-empty">

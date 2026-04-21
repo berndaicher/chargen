@@ -3,6 +3,10 @@ export default defineNuxtConfig({
   devtools: { enabled: true },
   devServer: { host: '127.0.0.1' },
   ssr: false,
+  nitro: {
+    preset: 'cloudflare-pages',
+    prerender: { crawlLinks: false, routes: ['/'] }
+  },
   modules: ['@vite-pwa/nuxt'],
   css: ['~/assets/main.css'],
   app: {

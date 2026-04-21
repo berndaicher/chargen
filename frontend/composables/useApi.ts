@@ -2,12 +2,14 @@ export type Role = 'reader' | 'editor' | 'admin';
 
 export interface Article {
   n_article: number;
+  product_identifier: string;
   article_name: string;
 }
 
 export interface Charge {
   n_charge: number;
   n_article: number;
+  product_identifier: string;
   charge_id: string;
   good_to: string | null;
   first_delivery: string | null;
@@ -57,9 +59,10 @@ export function useApi() {
       if (offset != null) params.set('offset', String(offset));
       return call<Article[]>('GET', `/articles?${params.toString()}`);
     },
-    createArticle: (a: Omit<Article, never>) => call<{ ok: boolean }>('POST', '/articles', a),
-    updateArticle: (nArticle: number, article_name: string) =>
-      call<{ ok: boolean }>('PUT', `/articles/${nArticle}`, { article_name }),
+    createArticle: (a: { product_identifier: string; article_name: string }) =>
+      call<{ ok: boolean; n_article: number; product_identifier: string }>('POST', '/articles', a),
+    updateArticle: (nArticle: number, payload: { product_identifier: string; article_name: string }) =>
+      call<{ ok: boolean }>('PUT', `/articles/${nArticle}`, payload),
     deleteArticle: (nArticle: number) => call<{ ok: boolean }>('DELETE', `/articles/${nArticle}`),
 
     getCharges: (q?: string, nArticle?: number, limit?: number, offset?: number) => {
@@ -70,7 +73,7 @@ export function useApi() {
       if (offset != null) params.set('offset', String(offset));
       return call<Charge[]>('GET', `/charges?${params.toString()}`);
     },
-    createCharge: (c: Omit<Charge, 'n_charge' | 'article_name'>) =>
+    createCharge: (c: Omit<Charge, 'n_charge' | 'article_name' | 'product_identifier'>) =>
       call<{ ok: boolean }>('POST', '/charges', c),
     updateCharge: (
       chargeId: string,
@@ -126,7 +129,7 @@ export function downloadPDFReport(articles: Article[], charges: Charge[], select
   let chargesRows = '';
   for (const c of filteredCharges) {
     chargesRows += `<tr>
-      <td>${c.n_article}</td>
+      <td>${esc(c.product_identifier ?? '')}</td>
       <td>${esc(c.article_name)}</td>
       <td>${esc(c.charge_id)}</td>
       <td>${formatDate(c.good_to)}</td>
@@ -137,7 +140,7 @@ export function downloadPDFReport(articles: Article[], charges: Charge[], select
 
   let articlesRows = '';
   for (const a of articles) {
-    articlesRows += `<tr><td>${a.n_article}</td><td>${esc(a.article_name)}</td></tr>`;
+    articlesRows += `<tr><td>${esc(a.product_identifier ?? '')}</td><td>${esc(a.article_name)}</td></tr>`;
   }
 
   w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Chargenreport</title>
@@ -161,7 +164,7 @@ export function downloadPDFReport(articles: Article[], charges: Charge[], select
 <table><thead><tr><th>Art. Nr</th><th>Bezeichnung</th></tr></thead>
 <tbody>${articlesRows || '<tr><td colspan="2">Keine Artikel</td></tr>'}</tbody></table>
 
-<h2>Chargen (${filteredCharges.length})${selectedArticle ? ` — Artikel ${selectedArticle.n_article} (${esc(selectedArticle.article_name)})` : ''}</h2>
+<h2>Chargen (${filteredCharges.length})${selectedArticle ? ` — Artikel ${esc(selectedArticle.product_identifier ?? '')} (${esc(selectedArticle.article_name)})` : ''}</h2>
 <table><thead><tr><th>Art. Nr</th><th>Bezeichnung</th><th>Chrg. Nr</th><th>MHD</th><th>Erste Ausl.</th><th>Letzte Ausl.</th></tr></thead>
 <tbody>${chargesRows || '<tr><td colspan="6">Keine Chargen</td></tr>'}</tbody></table>
 

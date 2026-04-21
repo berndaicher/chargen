@@ -1,5 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="64" fill="#283F37"/>
-  <text x="256" y="260" font-family="Verdana,sans-serif" font-size="220" font-weight="bold" fill="#FECE15" text-anchor="middle" dominant-baseline="middle">C</text>
-  <text x="256" y="410" font-family="Verdana,sans-serif" font-size="56" fill="#fafafa" text-anchor="middle">chargen</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <g transform="translate(40 135.4) scale(2.629)" fill="#FFCF02">
+    <polygon points="43.8 0 0 0 57.02 91.73 90.08 45.86 71.17 45.86 43.8 0"/>
+    <polygon points="120.46 91.73 164.31 91.73 105.51 0 71.93 41.76 90.84 41.76 120.46 91.73"/>
+  </g>
 </svg>

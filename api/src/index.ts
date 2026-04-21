@@ -81,49 +81,78 @@ app.get('/articles', async (c) => {
   const offset = Math.max(parseInt(c.req.query('offset') ?? '0', 10) || 0, 0);
 
   const rows = await c.env.DB.prepare(
-    `SELECT n_article, article_name
+    `SELECT n_article, product_identifier, article_name
      FROM t_articles
      WHERE tenant_id = ?
-       AND (? = '' OR CAST(n_article AS TEXT) LIKE '%' || ? || '%' OR article_name LIKE '%' || ? || '%')
-     ORDER BY n_article ASC
+       AND (? = '' OR product_identifier LIKE '%' || ? || '%' OR article_name LIKE '%' || ? || '%')
+     ORDER BY product_identifier ASC
      LIMIT ? OFFSET ?`
   )
     .bind(auth.tenantId, q, q, q, limit, offset)
-    .all<{ n_article: number; article_name: string }>();
+    .all<{ n_article: number; product_identifier: string | null; article_name: string }>();
 
   return c.json(rows.results ?? []);
 });
 
 app.post('/articles', async (c) => {
   const auth = requireRole(c, ['editor', 'admin']);
-  const body = await c.req.json<{ n_article: number; article_name: string }>();
+  const body = await c.req.json<{ product_identifier: string; article_name: string }>();
 
-  if (!Number.isInteger(body.n_article) || !body.article_name?.trim()) {
+  const pid = body.product_identifier?.trim();
+  const name = body.article_name?.trim();
+  if (!pid || !name) {
     throw new HTTPException(400, { message: 'Invalid article payload' });
   }
 
-  await c.env.DB.prepare(
-    'INSERT INTO t_articles (tenant_id, n_article, article_name) VALUES (?, ?, ?)'
+  const existing = await c.env.DB.prepare(
+    'SELECT 1 FROM t_articles WHERE tenant_id = ? AND product_identifier = ?'
   )
-    .bind(auth.tenantId, body.n_article, body.article_name.trim())
+    .bind(auth.tenantId, pid)
+    .first<{ 1: number }>();
+  if (existing) {
+    throw new HTTPException(409, { message: 'product_identifier already exists' });
+  }
+
+  const next = await c.env.DB.prepare(
+    'SELECT COALESCE(MAX(n_article), 0) + 1 AS next_n FROM t_articles WHERE tenant_id = ?'
+  )
+    .bind(auth.tenantId)
+    .first<{ next_n: number }>();
+  const nArticle = next?.next_n ?? 1;
+
+  await c.env.DB.prepare(
+    'INSERT INTO t_articles (tenant_id, n_article, article_name, product_identifier) VALUES (?, ?, ?, ?)'
+  )
+    .bind(auth.tenantId, nArticle, name, pid)
     .run();
 
-  return c.json({ ok: true }, 201);
+  return c.json({ ok: true, n_article: nArticle, product_identifier: pid }, 201);
 });
 
 app.put('/articles/:nArticle', async (c) => {
   const auth = requireRole(c, ['editor', 'admin']);
   const nArticle = Number(c.req.param('nArticle'));
-  const body = await c.req.json<{ article_name: string }>();
+  const body = await c.req.json<{ product_identifier: string; article_name: string }>();
 
-  if (!Number.isInteger(nArticle) || !body.article_name?.trim()) {
+  const pid = body.product_identifier?.trim();
+  const name = body.article_name?.trim();
+  if (!Number.isInteger(nArticle) || !pid || !name) {
     throw new HTTPException(400, { message: 'Invalid article payload' });
   }
 
-  const result = await c.env.DB.prepare(
-    'UPDATE t_articles SET article_name = ? WHERE tenant_id = ? AND n_article = ?'
+  const conflict = await c.env.DB.prepare(
+    'SELECT 1 FROM t_articles WHERE tenant_id = ? AND product_identifier = ? AND n_article <> ?'
   )
-    .bind(body.article_name.trim(), auth.tenantId, nArticle)
+    .bind(auth.tenantId, pid, nArticle)
+    .first<{ 1: number }>();
+  if (conflict) {
+    throw new HTTPException(409, { message: 'product_identifier already exists' });
+  }
+
+  const result = await c.env.DB.prepare(
+    'UPDATE t_articles SET article_name = ?, product_identifier = ? WHERE tenant_id = ? AND n_article = ?'
+  )
+    .bind(name, pid, auth.tenantId, nArticle)
     .run();
 
   if ((result.meta.changes ?? 0) === 0) {
@@ -162,14 +191,14 @@ app.get('/charges', async (c) => {
   const offset = Math.max(parseInt(c.req.query('offset') ?? '0', 10) || 0, 0);
 
   const rows = await c.env.DB.prepare(
-    `SELECT c.n_charge, c.n_article, c.charge_id, c.good_to, c.first_delivery, c.last_delivery, a.article_name
+    `SELECT c.n_charge, c.n_article, a.product_identifier, c.charge_id, c.good_to, c.first_delivery, c.last_delivery, a.article_name
      FROM t_charges c
      INNER JOIN t_articles a
        ON a.tenant_id = c.tenant_id AND a.n_article = c.n_article
      WHERE c.tenant_id = ?
-       AND (? = '' OR c.charge_id LIKE '%' || ? || '%' OR CAST(c.n_article AS TEXT) LIKE '%' || ? || '%' OR a.article_name LIKE '%' || ? || '%')
+       AND (? = '' OR c.charge_id LIKE '%' || ? || '%' OR a.product_identifier LIKE '%' || ? || '%' OR a.article_name LIKE '%' || ? || '%')
        AND (? = '' OR CAST(c.n_article AS TEXT) = ?)
-     ORDER BY c.id DESC
+     ORDER BY COALESCE(c.first_delivery, '') DESC, c.id DESC
      LIMIT ? OFFSET ?`
   )
     .bind(auth.tenantId, q, q, q, q, nArticle, nArticle, limit, offset)
@@ -320,15 +349,15 @@ app.put('/users/:oid/role', async (c) => {
 app.get('/articles/export', async (c) => {
   const auth = requireRole(c, ['reader', 'editor', 'admin']);
   const rows = await c.env.DB.prepare(
-    'SELECT n_article, article_name FROM t_articles WHERE tenant_id = ? ORDER BY n_article ASC'
+    'SELECT product_identifier, article_name FROM t_articles WHERE tenant_id = ? ORDER BY product_identifier ASC'
   )
     .bind(auth.tenantId)
-    .all<{ n_article: number; article_name: string }>();
+    .all<{ product_identifier: string | null; article_name: string }>();
 
   const csv = [
     'Artikelnummer,Bezeichnung',
     ...(rows.results ?? []).map(
-      (r) => `${r.n_article},"${r.article_name.replace(/"/g, '""')}"`
+      (r) => `${r.product_identifier ?? ''},"${r.article_name.replace(/"/g, '""')}"`
     )
   ].join('\r\n');
 
@@ -345,14 +374,14 @@ app.get('/charges/export', async (c) => {
   const q = (c.req.query('q') ?? '').trim();
 
   const rows = await c.env.DB.prepare(
-    `SELECT c.n_article, a.article_name, c.charge_id, c.good_to, c.first_delivery, c.last_delivery
+    `SELECT a.product_identifier, a.article_name, c.charge_id, c.good_to, c.first_delivery, c.last_delivery
      FROM t_charges c
      INNER JOIN t_articles a ON a.tenant_id = c.tenant_id AND a.n_article = c.n_article
      WHERE c.tenant_id = ?
        AND (? = '' OR c.charge_id LIKE '%' || ? || '%'
-            OR CAST(c.n_article AS TEXT) LIKE '%' || ? || '%'
+            OR a.product_identifier LIKE '%' || ? || '%'
             OR a.article_name LIKE '%' || ? || '%')
-     ORDER BY c.n_article ASC, c.charge_id ASC`
+     ORDER BY COALESCE(c.first_delivery, '') DESC, c.id DESC`
   )
     .bind(auth.tenantId, q, q, q, q)
     .all<Record<string, string>>();
@@ -362,7 +391,7 @@ app.get('/charges/export', async (c) => {
     'Artikelnummer,Bezeichnung,Chargennummer,MHD,Erste Auslieferung,Letzte Auslieferung',
     ...(rows.results ?? []).map(
       (r) =>
-        `${r.n_article},${esc(r.article_name)},${esc(r.charge_id)},${r.good_to ?? ''},${r.first_delivery ?? ''},${r.last_delivery ?? ''}`
+        `${r.product_identifier ?? ''},${esc(r.article_name)},${esc(r.charge_id)},${r.good_to ?? ''},${r.first_delivery ?? ''},${r.last_delivery ?? ''}`
     )
   ].join('\r\n');
 
