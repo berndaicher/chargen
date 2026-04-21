@@ -393,14 +393,14 @@ async function saveCharge() {
     return;
   }
   if (!chargeForm.charge_id.trim()) {
-    chargeFormError.value = 'Chargennummer darf nicht leer sein.';
+    chargeFormError.value = 'Losnummer darf nicht leer sein.';
     return;
   }
   const duplicate = charges.value.find(
     (c) => c.charge_id.toLowerCase() === chargeForm.charge_id.trim().toLowerCase() && !chargeForm.isEdit
   );
   if (duplicate) {
-    chargeFormError.value = `Chargennummer "${chargeForm.charge_id.trim()}" existiert bereits.`;
+    chargeFormError.value = `Losnummer "${chargeForm.charge_id.trim()}" existiert bereits.`;
     return;
   }
   chargeSaving.value = true;
@@ -413,7 +413,7 @@ async function saveCharge() {
           (c) => c.charge_id.toLowerCase() === newId.toLowerCase() && c.charge_id !== chargeForm.originalChargeId
         );
         if (dup) {
-          chargeFormError.value = `Chargennummer "${newId}" existiert bereits.`;
+          chargeFormError.value = `Losnummer "${newId}" existiert bereits.`;
           chargeSaving.value = false;
           return;
         }
@@ -439,7 +439,7 @@ async function saveCharge() {
   } catch (e) {
     const msg = String((e as Error).message);
     if (msg.includes('UNIQUE') || msg.includes('unique') || msg.toLowerCase().includes('duplicate')) {
-      chargeFormError.value = `Chargennummer "${chargeForm.charge_id.trim()}" existiert bereits.`;
+      chargeFormError.value = `Losnummer "${chargeForm.charge_id.trim()}" existiert bereits.`;
     } else {
       chargeFormError.value = msg;
     }
@@ -478,7 +478,7 @@ function exportChargesCSV() {
   const rows = displayedCharges.value.map(c => ({
     Artikelnummer: c.product_identifier ?? '',
     Bezeichnung: c.article_name,
-    Chargennummer: c.charge_id,
+    Losnummer: c.charge_id,
     MHD: formatDate(c.good_to),
     'Erste Auslieferung': formatDate(c.first_delivery),
     'Letzte Auslieferung': formatDate(c.last_delivery)
@@ -583,7 +583,7 @@ async function printChargeList() {
 <h1>Chargenliste${subtitle}</h1>
 <p class="meta">Erstellt am ${new Date().toLocaleDateString('de-AT')} · ${allCharges.length} Chargen</p>
 <table>
-<thead><tr><th>Art. Nr</th><th>Bezeichnung</th><th>Chrg. Nr</th><th>MHD</th><th>Erste Ausl.</th><th>Letzte Ausl.</th></tr></thead>
+<thead><tr><th>Art. Nr</th><th>Bezeichnung</th><th>Losnummer</th><th>MHD</th><th>Erste Ausl.</th><th>Letzte Ausl.</th></tr></thead>
 <tbody>${rows || '<tr><td colspan="6">Keine Chargen</td></tr>'}</tbody>
 </table>
 </body></html>`);
@@ -763,7 +763,7 @@ watch(accessToken, init);
         </div>
       </div>
       <div class="panel-search">
-        <input v-model="chargeFilter" placeholder="Suche Chargennummer…" class="search-input" @keyup.enter="loadCharges" />
+        <input v-model="chargeFilter" placeholder="Suche Losnummer..." class="search-input" @keyup.enter="loadCharges" />
         <button @click="loadCharges" class="btn-sm">Suchen</button>
       </div>
       <p v-if="chargeError" class="error">{{ chargeError }}</p>
@@ -883,7 +883,7 @@ watch(accessToken, init);
           </div>
         </label>
         <label>
-          Chargennummer
+          Losnummer
           <input v-model="chargeForm.charge_id" type="text" placeholder="Chargen-ID" required />
         </label>
         <div class="form-row">
