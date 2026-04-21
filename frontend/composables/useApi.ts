@@ -7,7 +7,7 @@ export interface Article {
 }
 
 export interface Charge {
-  n_charge: number;
+  id: number;
   n_article: number;
   product_identifier: string;
   charge_id: string;
@@ -37,17 +37,21 @@ export function useApi() {
 
   async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
     if (!accessToken.value) {
-      throw new Error('Not authenticated');
+      throw new Error('Anmeldung erforderlich — bitte neu anmelden.');
     }
 
-    return $fetch<T>(config.public.apiBaseUrl + path, {
-      method: method as 'GET' | 'POST' | 'PUT' | 'DELETE',
-      headers: {
-        Authorization: `Bearer ${accessToken.value}`,
-        ...(body ? { 'Content-Type': 'application/json' } : {})
-      },
-      body: body ? JSON.stringify(body) : undefined
-    });
+    try {
+      return await $fetch<T>(config.public.apiBaseUrl + path, {
+        method: method as 'GET' | 'POST' | 'PUT' | 'DELETE',
+        headers: {
+          Authorization: `Bearer ${accessToken.value}`,
+          ...(body ? { 'Content-Type': 'application/json' } : {})
+        },
+        body: body ? JSON.stringify(body) : undefined
+      });
+    } catch (e: unknown) {
+      throw new Error(toUserMessage(e));
+    }
   }
 
   return {
@@ -73,14 +77,14 @@ export function useApi() {
       if (offset != null) params.set('offset', String(offset));
       return call<Charge[]>('GET', `/charges?${params.toString()}`);
     },
-    createCharge: (c: Omit<Charge, 'n_charge' | 'article_name' | 'product_identifier'>) =>
-      call<{ ok: boolean }>('POST', '/charges', c),
+    createCharge: (c: Omit<Charge, 'id' | 'article_name' | 'product_identifier'>) =>
+      call<{ ok: boolean; id: number }>('POST', '/charges', c),
     updateCharge: (
-      chargeId: string,
-      payload: { n_article: number; new_charge_id?: string; good_to?: string | null; first_delivery?: string | null; last_delivery?: string | null }
-    ) => call<{ ok: boolean }>('PUT', `/charges/${encodeURIComponent(chargeId)}`, payload),
-    deleteCharge: (chargeId: string) =>
-      call<{ ok: boolean }>('DELETE', `/charges/${encodeURIComponent(chargeId)}`),
+      id: number,
+      payload: { n_article: number; charge_id: string; good_to?: string | null; first_delivery?: string | null; last_delivery?: string | null }
+    ) => call<{ ok: boolean }>('PUT', `/charges/${id}`, payload),
+    deleteCharge: (id: number) =>
+      call<{ ok: boolean }>('DELETE', `/charges/${id}`),
 
     getUsers: () => call<TenantUser[]>('GET', '/users'),
     setUserRole: (oid: string, role: Role) =>
@@ -175,4 +179,20 @@ export function downloadPDFReport(articles: Article[], charges: Charge[], select
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function toUserMessage(e: unknown): string {
+  const err = e as { status?: number; statusCode?: number; data?: { message?: string }; response?: { status?: number; _data?: { message?: string } } };
+  const status = err?.response?.status ?? err?.statusCode ?? err?.status;
+  const serverMsg = err?.data?.message ?? err?.response?._data?.message;
+  if (serverMsg) return serverMsg;
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return 'Keine Internetverbindung — bitte Netzwerk prüfen.';
+  }
+  if (status === 401) return 'Anmeldung abgelaufen — bitte neu anmelden.';
+  if (status === 403) return 'Keine Berechtigung für diese Aktion.';
+  if (status === 404) return 'Datensatz wurde nicht gefunden.';
+  if (status === 409) return 'Eintrag existiert bereits.';
+  if (status && status >= 500) return 'Server-Fehler — bitte erneut versuchen.';
+  return 'Unerwarteter Fehler — bitte erneut versuchen.';
 }

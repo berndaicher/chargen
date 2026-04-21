@@ -54,15 +54,15 @@ app.use('*', async (c, next) => {
 
     c.set('auth', auth);
     await next();
-  } catch (error) {
-    throw new HTTPException(401, { message: `Unauthorized: ${String((error as Error).message)}` });
+  } catch {
+    throw new HTTPException(401, { message: 'Anmeldung abgelaufen — bitte neu anmelden.' });
   }
 });
 
 function requireRole(c: import('hono').Context<AppContext>, allowed: Array<'reader' | 'editor' | 'admin'>) {
   const auth = c.get('auth') as AuthContext;
   if (!allowed.includes(auth.role)) {
-    throw new HTTPException(403, { message: 'Forbidden' });
+    throw new HTTPException(403, { message: 'Keine Berechtigung für diese Aktion.' });
   }
   return auth;
 }
@@ -101,7 +101,7 @@ app.post('/articles', async (c) => {
   const pid = body.product_identifier?.trim();
   const name = body.article_name?.trim();
   if (!pid || !name) {
-    throw new HTTPException(400, { message: 'Invalid article payload' });
+    throw new HTTPException(400, { message: 'Art. Nr. und Bezeichnung dürfen nicht leer sein.' });
   }
 
   const existing = await c.env.DB.prepare(
@@ -110,7 +110,7 @@ app.post('/articles', async (c) => {
     .bind(auth.tenantId, pid)
     .first<{ 1: number }>();
   if (existing) {
-    throw new HTTPException(409, { message: 'product_identifier already exists' });
+    throw new HTTPException(409, { message: `Art. Nr. "${pid}" ist bereits vergeben.` });
   }
 
   const next = await c.env.DB.prepare(
@@ -137,7 +137,7 @@ app.put('/articles/:nArticle', async (c) => {
   const pid = body.product_identifier?.trim();
   const name = body.article_name?.trim();
   if (!Number.isInteger(nArticle) || !pid || !name) {
-    throw new HTTPException(400, { message: 'Invalid article payload' });
+    throw new HTTPException(400, { message: 'Art. Nr. und Bezeichnung dürfen nicht leer sein.' });
   }
 
   const conflict = await c.env.DB.prepare(
@@ -146,7 +146,7 @@ app.put('/articles/:nArticle', async (c) => {
     .bind(auth.tenantId, pid, nArticle)
     .first<{ 1: number }>();
   if (conflict) {
-    throw new HTTPException(409, { message: 'product_identifier already exists' });
+    throw new HTTPException(409, { message: `Art. Nr. "${pid}" ist bereits vergeben.` });
   }
 
   const result = await c.env.DB.prepare(
@@ -156,7 +156,7 @@ app.put('/articles/:nArticle', async (c) => {
     .run();
 
   if ((result.meta.changes ?? 0) === 0) {
-    throw new HTTPException(404, { message: 'Article not found' });
+    throw new HTTPException(404, { message: 'Artikel wurde nicht gefunden — eventuell bereits gelöscht.' });
   }
 
   return c.json({ ok: true });
@@ -167,7 +167,7 @@ app.delete('/articles/:nArticle', async (c) => {
   const nArticle = Number(c.req.param('nArticle'));
 
   if (!Number.isInteger(nArticle)) {
-    throw new HTTPException(400, { message: 'Invalid article number' });
+    throw new HTTPException(400, { message: 'Ungültige Artikelnummer.' });
   }
 
   const result = await c.env.DB.prepare(
@@ -177,7 +177,7 @@ app.delete('/articles/:nArticle', async (c) => {
     .run();
 
   if ((result.meta.changes ?? 0) === 0) {
-    throw new HTTPException(404, { message: 'Article not found' });
+    throw new HTTPException(404, { message: 'Artikel wurde nicht gefunden — eventuell bereits gelöscht.' });
   }
 
   return c.json({ ok: true });
@@ -191,7 +191,7 @@ app.get('/charges', async (c) => {
   const offset = Math.max(parseInt(c.req.query('offset') ?? '0', 10) || 0, 0);
 
   const rows = await c.env.DB.prepare(
-    `SELECT c.n_charge, c.n_article, a.product_identifier, c.charge_id, c.good_to, c.first_delivery, c.last_delivery, a.article_name
+    `SELECT c.id, c.n_article, a.product_identifier, c.charge_id, c.good_to, c.first_delivery, c.last_delivery, a.article_name
      FROM t_charges c
      INNER JOIN t_articles a
        ON a.tenant_id = c.tenant_id AND a.n_article = c.n_article
@@ -217,86 +217,129 @@ app.post('/charges', async (c) => {
     last_delivery?: string | null;
   }>();
 
-  if (!Number.isInteger(body.n_article) || !body.charge_id?.trim()) {
-    throw new HTTPException(400, { message: 'Invalid charge payload' });
+  const chargeId = body.charge_id?.trim();
+  if (!Number.isInteger(body.n_article) || !chargeId) {
+    throw new HTTPException(400, { message: 'Artikel und Losnummer dürfen nicht leer sein.' });
   }
 
-  await c.env.DB.prepare(
+  const article = await c.env.DB.prepare(
+    'SELECT product_identifier FROM t_articles WHERE tenant_id = ? AND n_article = ?'
+  )
+    .bind(auth.tenantId, body.n_article)
+    .first<{ product_identifier: string | null }>();
+  if (!article) {
+    throw new HTTPException(400, { message: 'Der ausgewählte Artikel existiert nicht.' });
+  }
+
+  const existing = await c.env.DB.prepare(
+    'SELECT 1 FROM t_charges WHERE tenant_id = ? AND n_article = ? AND charge_id = ?'
+  )
+    .bind(auth.tenantId, body.n_article, chargeId)
+    .first<{ 1: number }>();
+  if (existing) {
+    throw new HTTPException(409, {
+      message: `Losnummer "${chargeId}" ist für Artikel "${article.product_identifier ?? body.n_article}" bereits vergeben.`
+    });
+  }
+
+  const result = await c.env.DB.prepare(
     `INSERT INTO t_charges
       (tenant_id, n_article, charge_id, good_to, first_delivery, last_delivery)
-     VALUES (?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?)
+     RETURNING id`
   )
     .bind(
       auth.tenantId,
       body.n_article,
-      body.charge_id.trim(),
+      chargeId,
       body.good_to ?? null,
       body.first_delivery ?? null,
       body.last_delivery ?? null
     )
-    .run();
+    .first<{ id: number }>();
 
-  return c.json({ ok: true }, 201);
+  return c.json({ ok: true, id: result?.id }, 201);
 });
 
-app.put('/charges/:chargeId', async (c) => {
+app.put('/charges/:id', async (c) => {
   const auth = requireRole(c, ['editor', 'admin']);
-  const chargeId = c.req.param('chargeId').trim();
+  const id = Number(c.req.param('id'));
   const body = await c.req.json<{
     n_article: number;
-    new_charge_id?: string;
+    charge_id: string;
     good_to?: string | null;
     first_delivery?: string | null;
     last_delivery?: string | null;
   }>();
 
-  if (!chargeId || !Number.isInteger(body.n_article)) {
-    throw new HTTPException(400, { message: 'Invalid charge payload' });
+  const chargeId = body.charge_id?.trim();
+  if (!Number.isInteger(id) || !Number.isInteger(body.n_article) || !chargeId) {
+    throw new HTTPException(400, { message: 'Artikel und Losnummer dürfen nicht leer sein.' });
+  }
+
+  const article = await c.env.DB.prepare(
+    'SELECT product_identifier FROM t_articles WHERE tenant_id = ? AND n_article = ?'
+  )
+    .bind(auth.tenantId, body.n_article)
+    .first<{ product_identifier: string | null }>();
+  if (!article) {
+    throw new HTTPException(400, { message: 'Der ausgewählte Artikel existiert nicht.' });
+  }
+
+  const conflict = await c.env.DB.prepare(
+    'SELECT 1 FROM t_charges WHERE tenant_id = ? AND n_article = ? AND charge_id = ? AND id <> ?'
+  )
+    .bind(auth.tenantId, body.n_article, chargeId, id)
+    .first<{ 1: number }>();
+  if (conflict) {
+    throw new HTTPException(409, {
+      message: `Losnummer "${chargeId}" ist für Artikel "${article.product_identifier ?? body.n_article}" bereits vergeben.`
+    });
   }
 
   const result = await c.env.DB.prepare(
     `UPDATE t_charges
       SET n_article = ?,
-          charge_id = COALESCE(NULLIF(?, ''), charge_id),
+          charge_id = ?,
           good_to = ?,
           first_delivery = ?,
           last_delivery = ?
-     WHERE tenant_id = ? AND charge_id = ?`
+     WHERE tenant_id = ? AND id = ?`
   )
     .bind(
       body.n_article,
-      body.new_charge_id?.trim() ?? '',
+      chargeId,
       body.good_to ?? null,
       body.first_delivery ?? null,
       body.last_delivery ?? null,
       auth.tenantId,
-      chargeId
+      id
     )
     .run();
 
   if ((result.meta.changes ?? 0) === 0) {
-    throw new HTTPException(404, { message: 'Charge not found' });
+    throw new HTTPException(404, { message: 'Charge wurde nicht gefunden — eventuell bereits gelöscht.' });
   }
 
   return c.json({ ok: true });
 });
 
-app.delete('/charges/:chargeId', async (c) => {
+app.delete('/charges/:id', async (c) => {
   const auth = requireRole(c, ['admin']);
-  const chargeId = c.req.param('chargeId').trim();
+  const id = Number(c.req.param('id'));
 
-  if (!chargeId) {
-    throw new HTTPException(400, { message: 'Invalid charge id' });
+  if (!Number.isInteger(id)) {
+    throw new HTTPException(400, { message: 'Ungültige Charge.' });
   }
 
   const result = await c.env.DB.prepare(
-    'DELETE FROM t_charges WHERE tenant_id = ? AND charge_id = ?'
+    'DELETE FROM t_charges WHERE tenant_id = ? AND id = ?'
   )
-    .bind(auth.tenantId, chargeId)
+    .bind(auth.tenantId, id)
     .run();
 
   if ((result.meta.changes ?? 0) === 0) {
-    throw new HTTPException(404, { message: 'Charge not found' });
+    throw new HTTPException(404, { message: 'Charge wurde nicht gefunden — eventuell bereits gelöscht.' });
   }
 
   return c.json({ ok: true });
@@ -324,7 +367,7 @@ app.put('/users/:oid/role', async (c) => {
   const body = await c.req.json<{ role: string }>();
 
   if (!['reader', 'editor', 'admin'].includes(body.role)) {
-    throw new HTTPException(400, { message: 'Invalid role. Must be reader, editor, or admin' });
+    throw new HTTPException(400, { message: 'Ungültige Rolle — erlaubt sind reader, editor oder admin.' });
   }
 
   const user = await c.env.DB.prepare('SELECT id FROM app_users WHERE user_oid = ?')
@@ -332,7 +375,7 @@ app.put('/users/:oid/role', async (c) => {
     .first<{ id: number }>();
 
   if (!user) {
-    throw new HTTPException(404, { message: 'User not found in this tenant' });
+    throw new HTTPException(404, { message: 'Benutzer wurde in diesem Mandanten nicht gefunden.' });
   }
 
   await c.env.DB.prepare(

@@ -161,12 +161,7 @@ async function saveArticle() {
       await loadCharges();
     }
   } catch (e) {
-    const msg = String((e as Error).message);
-    if (msg.includes('UNIQUE') || msg.includes('unique') || msg.toLowerCase().includes('duplicate') || msg.includes('409')) {
-      articleFormError.value = `Art. Nr. "${pid}" existiert bereits.`;
-    } else {
-      articleFormError.value = msg;
-    }
+    articleFormError.value = String((e as Error).message);
   } finally {
     articleSaving.value = false;
   }
@@ -274,12 +269,12 @@ function onChargeScroll(e: Event) {
 // ─── Charge Modal ─────────────────────────────────────────────────────────────
 const chargeDialog = ref<HTMLDialogElement | null>(null);
 const chargeForm = reactive({
+  id: null as number | null,
   n_article: '' as string | number,
   charge_id: '',
   good_to: '',
   first_delivery: '',
   last_delivery: '',
-  originalChargeId: '',
   isEdit: false
 });
 const chargeSaving = ref(false);
@@ -367,12 +362,13 @@ function openNewCharge(article?: Article) {
   chargeForm.first_delivery = '';
   chargeForm.last_delivery = '';
   chargeForm.isEdit = false;
-  chargeForm.originalChargeId = '';
+  chargeForm.id = null;
   chargeFormError.value = '';
   chargeDialog.value?.showModal();
 }
 
 function openEditCharge(c: Charge) {
+  chargeForm.id = c.id;
   chargeForm.n_article = c.n_article;
   const a = articles.value.find((x) => x.n_article === c.n_article);
   articleSearch.value = a ? articleDisplay(a) : (c.product_identifier ?? String(c.n_article));
@@ -380,7 +376,6 @@ function openEditCharge(c: Charge) {
   chargeForm.good_to = isoToDE(c.good_to);
   chargeForm.first_delivery = isoToDE(c.first_delivery);
   chargeForm.last_delivery = isoToDE(c.last_delivery);
-  chargeForm.originalChargeId = c.charge_id;
   chargeForm.isEdit = true;
   chargeFormError.value = '';
   chargeDialog.value?.showModal();
@@ -392,35 +387,28 @@ async function saveCharge() {
     chargeFormError.value = 'Bitte einen gültigen Artikel auswählen.';
     return;
   }
-  if (!chargeForm.charge_id.trim()) {
+  const newId = chargeForm.charge_id.trim();
+  if (!newId) {
     chargeFormError.value = 'Losnummer darf nicht leer sein.';
     return;
   }
   const duplicate = charges.value.find(
-    (c) => c.charge_id.toLowerCase() === chargeForm.charge_id.trim().toLowerCase() && !chargeForm.isEdit
+    (c) =>
+      c.n_article === nArticle &&
+      c.charge_id.toLowerCase() === newId.toLowerCase() &&
+      c.id !== chargeForm.id
   );
   if (duplicate) {
-    chargeFormError.value = `Losnummer "${chargeForm.charge_id.trim()}" existiert bereits.`;
+    chargeFormError.value = `Losnummer "${newId}" ist für diesen Artikel bereits vergeben.`;
     return;
   }
   chargeSaving.value = true;
   chargeFormError.value = '';
   try {
-    if (chargeForm.isEdit) {
-      const newId = chargeForm.charge_id.trim();
-      if (newId.toLowerCase() !== chargeForm.originalChargeId.toLowerCase()) {
-        const dup = charges.value.find(
-          (c) => c.charge_id.toLowerCase() === newId.toLowerCase() && c.charge_id !== chargeForm.originalChargeId
-        );
-        if (dup) {
-          chargeFormError.value = `Losnummer "${newId}" existiert bereits.`;
-          chargeSaving.value = false;
-          return;
-        }
-      }
-      await api.updateCharge(chargeForm.originalChargeId, {
+    if (chargeForm.isEdit && chargeForm.id != null) {
+      await api.updateCharge(chargeForm.id, {
         n_article: nArticle,
-        new_charge_id: newId !== chargeForm.originalChargeId ? newId : undefined,
+        charge_id: newId,
         good_to: deToISO(chargeForm.good_to),
         first_delivery: deToISO(chargeForm.first_delivery),
         last_delivery: deToISO(chargeForm.last_delivery)
@@ -428,7 +416,7 @@ async function saveCharge() {
     } else {
       await api.createCharge({
         n_article: nArticle,
-        charge_id: chargeForm.charge_id.trim(),
+        charge_id: newId,
         good_to: deToISO(chargeForm.good_to),
         first_delivery: deToISO(chargeForm.first_delivery),
         last_delivery: deToISO(chargeForm.last_delivery)
@@ -437,12 +425,7 @@ async function saveCharge() {
     chargeDialog.value?.close();
     await loadCharges();
   } catch (e) {
-    const msg = String((e as Error).message);
-    if (msg.includes('UNIQUE') || msg.includes('unique') || msg.toLowerCase().includes('duplicate')) {
-      chargeFormError.value = `Losnummer "${chargeForm.charge_id.trim()}" existiert bereits.`;
-    } else {
-      chargeFormError.value = msg;
-    }
+    chargeFormError.value = String((e as Error).message);
   } finally {
     chargeSaving.value = false;
   }
@@ -451,7 +434,7 @@ async function saveCharge() {
 async function deleteCharge(c: Charge) {
   if (!confirm(`Charge ${c.charge_id} wirklich löschen?`)) return;
   try {
-    await api.deleteCharge(c.charge_id);
+    await api.deleteCharge(c.id);
     await loadCharges();
   } catch (e) {
     alert(String((e as Error).message));
@@ -478,7 +461,7 @@ function exportChargesCSV() {
   const rows = displayedCharges.value.map(c => ({
     Artikelnummer: c.product_identifier ?? '',
     Bezeichnung: c.article_name,
-    Losnummer: c.charge_id,
+    Chargennummer: c.charge_id,
     MHD: formatDate(c.good_to),
     'Erste Auslieferung': formatDate(c.first_delivery),
     'Letzte Auslieferung': formatDate(c.last_delivery)
@@ -583,7 +566,7 @@ async function printChargeList() {
 <h1>Chargenliste${subtitle}</h1>
 <p class="meta">Erstellt am ${new Date().toLocaleDateString('de-AT')} · ${allCharges.length} Chargen</p>
 <table>
-<thead><tr><th>Art. Nr</th><th>Bezeichnung</th><th>Losnummer</th><th>MHD</th><th>Erste Ausl.</th><th>Letzte Ausl.</th></tr></thead>
+<thead><tr><th>Art. Nr</th><th>Bezeichnung</th><th>Chrg. Nr</th><th>MHD</th><th>Erste Ausl.</th><th>Letzte Ausl.</th></tr></thead>
 <tbody>${rows || '<tr><td colspan="6">Keine Chargen</td></tr>'}</tbody>
 </table>
 </body></html>`);
@@ -763,7 +746,7 @@ watch(accessToken, init);
         </div>
       </div>
       <div class="panel-search">
-        <input v-model="chargeFilter" placeholder="Suche Losnummer..." class="search-input" @keyup.enter="loadCharges" />
+        <input v-model="chargeFilter" placeholder="Suche Chargennummer…" class="search-input" @keyup.enter="loadCharges" />
         <button @click="loadCharges" class="btn-sm">Suchen</button>
       </div>
       <p v-if="chargeError" class="error">{{ chargeError }}</p>
@@ -810,7 +793,7 @@ watch(accessToken, init);
           <tbody>
             <tr v-if="chargeLoading"><td colspan="7" class="muted" style="padding: 12px;">Laden…</td></tr>
             <tr v-else-if="displayedCharges.length === 0"><td colspan="7" class="muted" style="padding: 12px;">Keine Chargen gefunden.</td></tr>
-            <tr v-for="c in displayedCharges" :key="c.charge_id">
+            <tr v-for="c in displayedCharges" :key="c.id">
               <td>{{ c.product_identifier }}</td>
               <td>{{ c.article_name }}</td>
               <td>{{ c.charge_id }}</td>
@@ -883,7 +866,7 @@ watch(accessToken, init);
           </div>
         </label>
         <label>
-          Losnummer
+          Chargennummer
           <input v-model="chargeForm.charge_id" type="text" placeholder="Chargen-ID" required />
         </label>
         <div class="form-row">
